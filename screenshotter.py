@@ -1,3 +1,4 @@
+import sys
 import os
 import time
 import base64
@@ -9,22 +10,125 @@ from selenium.webdriver.edge.service import Service as EdgeService
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
-from tkinter import Tk, Button, Entry, Label, messagebox, StringVar, OptionMenu, Frame, Toplevel, OptionMenu, END, Canvas, Scrollbar, VERTICAL, RIGHT, Y, BOTH, LEFT, BOTTOM, X
+from selenium.common.exceptions import NoSuchWindowException, WebDriverException
+from selenium.webdriver.edge.options import Options as EdgeOptions
+from webdriver_manager.microsoft import EdgeChromiumDriverManager
+from tkinter import ttk
+from tkinter import Tk, Button, Entry, Label, messagebox, StringVar, OptionMenu, Frame, Toplevel, OptionMenu, END, Canvas, Scrollbar, VERTICAL, RIGHT, Y, BOTH, LEFT, BOTTOM, X, HORIZONTAL
 from tkinter.filedialog import askdirectory
+from tkinter import TclError  
 import threading
+import re
+
+def get_base_path():
+    # Determinar si estamos ejecutando desde un .exe o desde el script
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+def close_program():
+    root.destroy()
+
+def toggle_topmost():
+    global is_topmost
+    is_topmost = not is_topmost
+    root.attributes('-topmost', is_topmost)
+    # Cambiar el texto del botón según el estado
+    if is_topmost:
+        topmost_button.config(text="📌")  # Candado abierto
+    else:
+        topmost_button.config(text="🔒")  # Candado cerrado
+
+def set_widgets_state(state):
+    for widget in root.winfo_children():
+        try:
+            widget.configure(state=state)
+        except TclError:
+            pass  # Ignorar los widgets que no tienen la opción "state"
+
+def keep_window_on_top(window, duration=5000):
+    """
+    Mantiene la ventana en primer plano durante un tiempo especificado.
+    """
+    window.attributes('-topmost', 1)
+    window.after(duration, lambda: window.attributes('-topmost', 0))
+
+def show_loading_screen(root):
+    loading_screen = Toplevel(root)
+    loading_screen.geometry("300x100")
+    loading_label = Label(loading_screen, text="Cargando, por favor espera...")
+    loading_label.pack(pady=20)
+    
+    # Crear una barra de progreso
+    progress = ttk.Progressbar(loading_screen, orient=HORIZONTAL, length=200, mode='determinate')
+    progress.pack(pady=10)
+    
+    # Deshabilitar widgets de la interfaz
+    set_widgets_state('disabled')
+
+    # Ocultar la ventana de Edge
+    driver.minimize_window()
+    
+    def update_progress(value):
+        progress['value'] = value
+        if value < 100:
+            root.after(60, update_progress, value + 1)
+        else:
+            on_load_complete()
+
+    def on_load_complete():
+        loading_screen.destroy()
+        set_widgets_state('normal')
+        driver.maximize_window()
+
+    # Vincular el evento de cierre de la ventana de carga al cierre del programa
+    loading_screen.protocol("WM_DELETE_WINDOW", close_program)
+
+    # Iniciar la actualización de la barra de progreso
+    update_progress(0)
+
+def is_valid_url(url):
+    # Expresión regular para validar URL
+    regex = re.compile(
+        r'^(?:http|ftp)s?://'  # http:// o https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # dominio...
+        r'localhost|'  # localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|'  # ...o dirección IP
+        r'\[?[A-F0-9]*:[A-F0-9:]+\]?)'  # ...o dirección IPv6
+        r'(?::\d+)?'  # puerto opcional
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+    
+    return re.match(regex, url) is not None
 
 # Configuración de Selenium para Edge
 def setup_driver():
-    edge_driver_path = "C:\\WebDriver\\msedgedriver.exe"
-    service = EdgeService(edge_driver_path)
-    options = webdriver.EdgeOptions()
+    try:
+        # Configuración automática con webdriver-manager (requiere internet)
+        driver_path = EdgeChromiumDriverManager().install()
+    except Exception as e:
+        # Fallback a driver local si hay error de conexión
+        base_path = get_base_path()
+        driver_path = os.path.join(base_path, "drivers", "msedgedriver.exe")
+        if not os.path.exists(driver_path):
+            raise FileNotFoundError(f"No se encontró el driver en: {driver_path} | Error original: {str(e)}")
+
+    # Configurar opciones del navegador
+    options = EdgeOptions()
     options.add_argument('--ignore-certificate-errors')
     options.add_argument('--incognito')
     options.add_argument('--start-maximized')
     options.add_argument('--disable-gpu')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    driver = webdriver.Edge(service=service, options=options)
+    
+    # Configurar servicio y driver
+    service = EdgeService(driver_path)
+    
+    try:
+        driver = webdriver.Edge(service=service, options=options)
+    except Exception as e:
+        raise RuntimeError(f"Error al iniciar Edge: {str(e)}")
+
     return driver
 
 # Variables globales
@@ -59,9 +163,36 @@ mode_settings = {
 }
 
 def show_info():
-    # Crear ventana emergente
+
+    # Crear ventana emergente botones adicionales
     info_window = Toplevel(root)
-    info_window.title("WebShot v4.0 - Información")
+    info_window.title("Botones adicionales")
+    info_window.geometry("400x200")
+    
+    # Crear Frame contenedor
+    main_frame = Frame(info_window, bg="white")
+    main_frame.pack(fill=BOTH, expand=True, padx=10, pady=10)
+    
+    # Título principal
+    Label(main_frame, 
+          text="Información de Botones Adicionales", 
+          font=("Arial", 12, "bold"),
+          bg="white").pack(pady=(0,10))
+    
+    # Sección de botones adicionales
+    info_text = (
+        "1. Botón de Superposición (🔒): Mantiene la ventana de la aplicación en primer plano.\n"
+    )
+    Label(main_frame, text=info_text, wraplength=380, justify="left", bg="white").pack(anchor="w", pady=5)
+    
+    # Botón de Superposición
+    icon_label = Label(main_frame, text="🔒", font=("Arial", 12), bg="white")
+    icon_label.pack(anchor="w", pady=(10, 0))
+
+
+    # Crear ventana emergente del manual de información
+    info_window = Toplevel(root)
+    info_window.title("WebShot v5.0 - Información")
     info_window.geometry("500x600")
     
     # Crear Canvas y Scrollbar
@@ -102,7 +233,7 @@ def show_info():
     
     # Título principal
     Label(main_frame, 
-          text="WebShot v4.0 - Información Completa", 
+          text="WebShot v5.0 - Información Completa", 
           font=("Arial", 12, "bold"),
           bg="white").pack(pady=(0,10))
     
@@ -157,7 +288,7 @@ def show_info():
     
     # Aclaraciones Controles
     aclaraciones_controles = """
-    - Capturas en modo 'elemento':
+    - Deshacer última acción en modo 'elemento':
       * Eliminan carpeta completa con todo su contenido
     - Proceso cambio de atajo:
       1. Usar 'Detectar'
@@ -191,12 +322,30 @@ def fullpage_screenshot(driver, file_path):
         return False
 
 def navigate_to_url():
-    global current_url
+    global current_url, driver
     url = url_entry.get()
     if not url.startswith(('http://', 'https://')):
         url = 'https://' + url
+
+    if not is_valid_url(url):
+        messagebox.showerror("Error", "La URL introducida no es válida.")
+        return
+
     try:
+        # Intentar obtener la ventana activa del navegador
+        driver.current_window_handle  # Esto debería lanzar una excepción si no hay ventana activa
         driver.get(url)
+    except (NoSuchWindowException, WebDriverException):
+        # Si no hay ventana activa, reiniciar el WebDriver
+        driver.quit()
+        driver = setup_driver()  # Reiniciar el WebDriver
+        driver.get(url)
+        driver.switch_to.window(driver.window_handles[-1])
+
+    root.focus_force()  # Recuperar el enfoque en la ventana principal de Tkinter
+    keep_window_on_top(root, duration=3000)  # Mantener la ventana en primer plano durante 3 segundos
+
+    try:
         WebDriverWait(driver, 10).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
@@ -340,6 +489,11 @@ def capture_element_mode():
         driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
         time.sleep(0.8)
 
+        # Verificar las dimensiones del elemento
+        if element.size['width'] == 0 or element.size['height'] == 0:
+            messagebox.showerror("Error", "No se puede capturar la captura de pantalla: El elemento tiene un ancho o alto de 0.")
+            return
+
         # 1. Captura NORMAL
         normal_path = os.path.join(element_dir, f"{settings['file_prefix']}_normal_{base_counter}.png")
         element.screenshot(normal_path)
@@ -358,6 +512,11 @@ def capture_element_mode():
                 lambda d: element.value_of_css_property('background-color') != original_bg
                 or element.value_of_css_property('cursor') == 'pointer'
             )
+            
+            # Verificar las dimensiones del elemento después del hover
+            if element.size['width'] == 0 or element.size['height'] == 0:
+                messagebox.showerror("Error", "No se puede capturar la captura de pantalla: El elemento tiene un ancho o alto de 0.")
+                return
             
             # Tomar captura hover
             hover_path = os.path.join(element_dir, f"{settings['file_prefix']}_hover_{base_counter}.png")
@@ -388,6 +547,11 @@ def capture_element_mode():
             
             # Relocalizar el elemento después del click
             new_element = driver.find_element(By.XPATH, element_xpath if element_xpath else absolute_xpath)
+            
+            # Verificar las dimensiones del nuevo elemento después del click
+            if new_element.size['width'] == 0 or new_element.size['height'] == 0:
+                messagebox.showerror("Error", "No se puede capturar la captura de pantalla: El nuevo elemento tiene un ancho o alto de 0.")
+                return
             
             # Tomar captura post-click
             click_path = os.path.join(element_dir, f"{settings['file_prefix']}_click_{base_counter}.png")
@@ -589,7 +753,11 @@ def delayed_capture():
 
 # Configuración de la GUI
 root = Tk()
-root.title("WebShot v4.0")
+root.title("WebShot v5.0")
+is_topmost = False  # Variable global para alternar superposición
+
+
+
 
 # Botón de información mejorado
 info_btn = Button(root, 
@@ -606,6 +774,10 @@ Label(root, text="URL:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
 url_entry = Entry(root, width=50)
 url_entry.grid(row=0, column=1, padx=5, pady=5)
 Button(root, text="Ir", command=navigate_to_url).grid(row=0, column=2, padx=5, pady=5)
+
+# Botón de superposición
+topmost_button = Button(root, text="🔒", command=toggle_topmost, font=("Arial", 12), bg="#E0F7FA", relief="flat", borderwidth=2)
+topmost_button.grid(row=1, column=0, padx=5, pady=5, sticky="w")
 
 # Selector de modo
 mode_var = StringVar(root)
@@ -703,6 +875,10 @@ screenshot_dir = askdirectory(title="Seleccionar carpeta para guardar capturas")
 if not screenshot_dir:
     messagebox.showerror("Error", "Debes seleccionar un directorio")
     exit()
+
+# Mostrar pantalla de carga
+show_loading_screen(root)
+
 dir_label.config(text=f"Directorio actual: {screenshot_dir}")
 
 root.mainloop()
